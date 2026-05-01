@@ -33,6 +33,7 @@ def predict():
     data = request.get_json()
 
     motherId = data.get("motherId")
+    week = data.get("week")
     trimester = data.get("trimester", 1)
     vitals = data.get("vitals")
 
@@ -59,7 +60,7 @@ def predict():
     record = {
         "motherId": motherId,
         "createdAt": datetime.utcnow(),
-        "Month": data.get("month"),
+        "Week": week,
         "Age": age,
         "SystolicBP": sbp,
         "DiastolicBP": dbp,
