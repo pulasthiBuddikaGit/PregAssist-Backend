@@ -4,10 +4,15 @@ from pymongo import MongoClient
 from datetime import datetime, timedelta
 from model_core import analyze_maternal_health
 import os
-
-app = FastAPI(title="PregAssist Trends API")
+from services.rules import detect_warnings
+from services.score import calculate_health_score
+from services.forecast import forecast_risk
+from services.recommendation import build_recommendation
+from dotenv import load_dotenv
 
 from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI(title="PregAssist Trends API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,9 +24,14 @@ app.add_middleware(
 
 
 # MongoDB Atlas connection
-MONGO_URI = os.getenv("MONGO_URI")
-client = MongoClient(MONGO_URI)
+load_dotenv()
 
+MONGO_URI = os.getenv("MONGO_URI")
+
+if not MONGO_URI:
+    raise ValueError("MONGO_URI is not set")
+
+client = MongoClient(MONGO_URI)
 db = client["maternal_db"]
 vitals_col = db["vitals"]
 
@@ -40,14 +50,93 @@ class VitalsSave(BaseModel):
 
 
 class PredictRequest(BaseModel):
+    motherId: str
     trimester: int = 1
     vitals: list[float]
 
 
 @app.post("/predict")
 def predict(req: PredictRequest):
+
+    # 1. MODEL OUTPUT
     result = analyze_maternal_health(req.vitals, trimester=req.trimester)
-    return result
+
+    risk_code = result["risk_level"]
+    risk_name = result["risk_name"]
+    confidence = result["confidence_percentage"]
+
+    age, sbp, dbp, bs, temp, hr = req.vitals
+
+    # 2. WARNING DETECTION
+    warnings = detect_warnings(sbp, dbp, bs, hr)
+
+    # 3. HEALTH SCORE
+    health_score = calculate_health_score(confidence, risk_code)
+
+    # 4. FETCH HISTORY (temporary user)
+    history = []
+
+    try:
+        history_cursor = vitals_col.find(
+            {"motherId": req.motherId}, {"_id": 0}
+        ).sort("createdAt", 1)
+        history = list(history_cursor)
+    except Exception as e:
+        print("Mongo history read failed:", e)
+        history = []
+
+    # 5. FORECAST
+    forecast = forecast_risk(history)
+
+    # 6. RECOMMENDATION
+    recommendation = build_recommendation(risk_name, warnings, forecast)
+
+    # 7. ALERT LOGIC
+    doctor_alert = (
+        risk_name == "high risk"
+        or any(w["severity"] == "high" for w in warnings)
+        or forecast["trend"] == "increasing"
+    )
+
+    # 8. SAVE CURRENT RECORD TO MONGODB
+    record = {
+        "motherId": "temp_user",   # later replace with real logged user id
+        "createdAt": datetime.utcnow(),
+        "Age": age,
+        "SystolicBP": sbp,
+        "DiastolicBP": dbp,
+        "BS": bs,
+        "BodyTemp": temp,
+        "HeartRate": hr,
+        "trimester": req.trimester,
+        "risk_level": risk_name,
+        "confidence": confidence,
+        "health_score": health_score,
+        "warnings": warnings,
+        "forecast": forecast,
+        "recommendation": recommendation,
+        "doctor_alert": doctor_alert,
+        "top_factor": result["top_contributor"],
+        "advice": result["advice"]
+    }
+
+    try:
+        vitals_col.insert_one(record)
+    except Exception as e:
+        print("Mongo save failed:", e)
+
+    # 9. FINAL RESPONSE
+    return {
+        "risk_level": risk_name,
+        "confidence": confidence,
+        "health_score": health_score,
+        "warnings": warnings,
+        "top_factor": result["top_contributor"],
+        "forecast": forecast,
+        "recommendation": recommendation,
+        "doctor_alert": doctor_alert,
+        "advice": result["advice"]
+    }
 
 
 @app.get("/health")

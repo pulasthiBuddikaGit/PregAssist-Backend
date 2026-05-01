@@ -83,7 +83,6 @@ def mgdl_to_mmol(value):
     return value / 18
 
 
-
 # CORE PREDICTION FUNCTION
 
 
@@ -111,7 +110,6 @@ def analyze_maternal_health(input_list,
    
     # MODEL PREDICTION
 
-
     risk_code = int(model.predict(data_df)[0])
     risk_name = risk_mapping_names[risk_code]
 
@@ -120,7 +118,6 @@ def analyze_maternal_health(input_list,
     confidence = float(np.max(probabilities) * 100)
 
     # SAFETY OVERRIDE RULES
-
     if sbp >= 180 or dbp >= 120:
         risk_code = 2
         risk_name = "high risk"
