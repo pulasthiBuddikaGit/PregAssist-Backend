@@ -1,3 +1,6 @@
+flask
+flask-cors
+gunicorn
 fastapi
 uvicorn
 pydantic
@@ -9,4 +12,3 @@ xgboost
 shap
 matplotlib
 seaborn
-gunicorn
