@@ -139,7 +139,9 @@ def analyze_maternal_health(input_list,
     shap_values = explainer(data_df)
 
     if len(shap_values.values.shape) == 3:
-        impacts = shap_values.values[0, :, risk_code]
+        # Always use the SHAP values for class 2 ("high risk") 
+        # so positive values ALWAYS mean risk, and negative ALWAYS mean protective.
+        impacts = shap_values.values[0, :, 2]
     else:
         impacts = shap_values.values[0]
 
@@ -258,12 +260,21 @@ def analyze_maternal_health(input_list,
     
     # RETURN RESULT
 
+    # 🔥 REMOVE AGE FROM TOP FACTOR
+    shap_data_filtered = [f for f in shap_data if f[0] != "Age"]
+
+    shap_data_filtered = sorted(
+        shap_data_filtered,
+        key=lambda x: abs(x[1]),
+        reverse=True
+    )
+
     return {
         "risk_level": risk_code,
         "risk_name": risk_name,
         "confidence_percentage": round(confidence, 2),
-        "top_contributor": shap_data[0][0],
-        "importance": {k: float(v) for k, v in shap_data},
+        "top_contributor": shap_data_filtered[0][0],
+        "importance": {k: float(v) for k, v in shap_data_filtered},
         "advice": advice
     }
 
